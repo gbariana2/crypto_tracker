@@ -16,7 +16,6 @@ function timeAgo(dateStr: string): string {
 export default function VolatilityAlerts() {
   const [alerts, setAlerts] = useState<VolatilityAlert[]>([]);
 
-  // Initial fetch — last 20 alerts
   useEffect(() => {
     async function fetchAlerts() {
       const { data, error } = await getSupabase()
@@ -32,7 +31,6 @@ export default function VolatilityAlerts() {
     fetchAlerts();
   }, []);
 
-  // Realtime subscription for new alerts
   useEffect(() => {
     const sb = getSupabase();
     const channel = sb
@@ -54,45 +52,43 @@ export default function VolatilityAlerts() {
 
   if (alerts.length === 0) {
     return (
-      <div className="rounded-xl border border-gray-200 bg-white p-6 text-center text-sm text-gray-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-400">
+      <div className="rounded-lg border border-border bg-surface p-6 text-center text-sm text-muted">
         No volatility alerts yet. Alerts trigger when a coin moves 2%+ in 5 minutes.
       </div>
     );
   }
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-1.5">
       {alerts.map((alert) => {
         const isUp = alert.change_pct > 0;
         return (
           <div
             key={alert.id}
-            className={`flex items-center justify-between rounded-lg border px-4 py-3 ${
-              isUp
-                ? "border-green-200 bg-green-50 dark:border-green-900 dark:bg-green-950"
-                : "border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950"
-            }`}
+            className="flex items-center justify-between rounded-lg border border-border bg-surface px-4 py-2.5"
           >
             <div className="flex items-center gap-3">
-              <span className="text-lg">{isUp ? "\u25B2" : "\u25BC"}</span>
+              <span className={`text-sm ${isUp ? "text-up" : "text-down"}`}>
+                {isUp ? "\u25B2" : "\u25BC"}
+              </span>
               <div>
-                <span className="font-medium text-gray-900 dark:text-white">
+                <span className="font-medium text-foreground">
                   {alert.symbol.replace("USDT", "")}
                 </span>
-                <span className="ml-2 text-xs text-gray-500 dark:text-gray-400">
-                  ${alert.price_start.toFixed(2)} → ${alert.price_end.toFixed(2)}
+                <span className="ml-2 text-xs text-muted">
+                  ${alert.price_start.toFixed(2)} &rarr; ${alert.price_end.toFixed(2)}
                 </span>
               </div>
             </div>
             <div className="flex items-center gap-3">
               <span
-                className={`font-mono font-bold ${
-                  isUp ? "text-green-700 dark:text-green-400" : "text-red-700 dark:text-red-400"
+                className={`rounded px-1.5 py-0.5 font-mono text-xs font-semibold ${
+                  isUp ? "bg-up/10 text-up" : "bg-down/10 text-down"
                 }`}
               >
                 {isUp ? "+" : ""}{alert.change_pct.toFixed(2)}%
               </span>
-              <span className="text-xs text-gray-400">{timeAgo(alert.triggered_at)}</span>
+              <span className="text-xs text-muted">{timeAgo(alert.triggered_at)}</span>
             </div>
           </div>
         );

@@ -1,19 +1,39 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { getSupabase } from "@/lib/supabase";
 import { useAuth } from "./AuthProvider";
 import { useFavorites } from "@/lib/hooks/useFavorites";
 import type { Price } from "@/lib/types";
 
+const POLL_INTERVAL = 5; // seconds
+
+const TIME_PERIODS = [
+  { key: "24h", label: "24H" },
+  { key: "1w", label: "1W" },
+  { key: "1m", label: "1M" },
+  { key: "ytd", label: "YTD" },
+  { key: "all", label: "ALL" },
+] as const;
+
+type PeriodKey = (typeof TIME_PERIODS)[number]["key"];
+
 function formatPrice(price: number): string {
-  if (price >= 1) return price.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  return price.toLocaleString("en-US", { minimumFractionDigits: 4, maximumFractionDigits: 6 });
+  if (price >= 1)
+    return price.toLocaleString("en-US", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+  return price.toLocaleString("en-US", {
+    minimumFractionDigits: 4,
+    maximumFractionDigits: 6,
+  });
 }
 
 function formatVolume(volume: number | null): string {
   if (!volume) return "-";
-  if (volume >= 1_000_000_000) return `${(volume / 1_000_000_000).toFixed(2)}B`;
+  if (volume >= 1_000_000_000)
+    return `${(volume / 1_000_000_000).toFixed(2)}B`;
   if (volume >= 1_000_000) return `${(volume / 1_000_000).toFixed(2)}M`;
   if (volume >= 1_000) return `${(volume / 1_000).toFixed(2)}K`;
   return volume.toFixed(2);
@@ -26,25 +46,44 @@ export default function PriceTable() {
   const [loading, setLoading] = useState(true);
   const [flashSymbols, setFlashSymbols] = useState<Set<string>>(new Set());
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
+  const [period, setPeriod] = useState<PeriodKey>("24h");
+  const [periodChanges, setPeriodChanges] = useState<Record<string, number>>(
+    {}
+  );
+  const [periodLoading, setPeriodLoading] = useState(false);
+  const [countdown, setCountdown] = useState(POLL_INTERVAL);
+  const countdownRef = useRef(POLL_INTERVAL);
 
-  // Fetch prices (used for initial load + polling fallback)
-  useEffect(() => {
-    async function fetchPrices() {
-      const { data, error } = await getSupabase()
-        .from("prices")
-        .select("*")
-        .order("volume_24h", { ascending: false, nullsFirst: false });
+  // Fetch prices from Supabase
+  const fetchPrices = useCallback(async () => {
+    const { data, error } = await getSupabase()
+      .from("prices")
+      .select("*")
+      .order("volume_24h", { ascending: false, nullsFirst: false });
 
-      if (!error && data) {
-        setPrices(data as Price[]);
-      }
-      setLoading(false);
+    if (!error && data) {
+      setPrices(data as Price[]);
     }
-    fetchPrices();
+    setLoading(false);
+    // Reset countdown
+    countdownRef.current = POLL_INTERVAL;
+    setCountdown(POLL_INTERVAL);
+  }, []);
 
-    // Poll every 5s as fallback in case Realtime has issues
-    const interval = setInterval(fetchPrices, 5000);
-    return () => clearInterval(interval);
+  // Initial fetch + polling
+  useEffect(() => {
+    fetchPrices();
+    const pollInterval = setInterval(fetchPrices, POLL_INTERVAL * 1000);
+    return () => clearInterval(pollInterval);
+  }, [fetchPrices]);
+
+  // Countdown timer (ticks every second)
+  useEffect(() => {
+    const timer = setInterval(() => {
+      countdownRef.current = Math.max(0, countdownRef.current - 1);
+      setCountdown(countdownRef.current);
+    }, 1000);
+    return () => clearInterval(timer);
   }, []);
 
   // Realtime subscription
@@ -77,19 +116,63 @@ export default function PriceTable() {
     };
   }, []);
 
+  // Fetch period-specific change data from klines API
+  useEffect(() => {
+    if (period === "24h") {
+      // Use the 24h change from Supabase directly
+      setPeriodChanges({});
+      return;
+    }
+
+    let cancelled = false;
+    async function fetchPeriodData() {
+      setPeriodLoading(true);
+      try {
+        const symbols = prices.map((p) => p.symbol).join(",");
+        if (!symbols) return;
+        const res = await fetch(
+          `/api/klines?symbols=${symbols}&period=${period}`
+        );
+        if (res.ok && !cancelled) {
+          const data = await res.json();
+          setPeriodChanges(data);
+        }
+      } catch {
+        // ignore
+      } finally {
+        if (!cancelled) setPeriodLoading(false);
+      }
+    }
+
+    if (prices.length > 0) {
+      fetchPeriodData();
+    }
+
+    return () => {
+      cancelled = true;
+    };
+  }, [period, prices.length > 0]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function getChange(coin: Price): number {
+    if (period === "24h") return coin.change_24h;
+    return periodChanges[coin.symbol] ?? 0;
+  }
+
   const displayedPrices = showFavoritesOnly
     ? prices.filter((p) => favorites.has(p.symbol))
     : prices;
 
-  // Sort: favorites first, then by volume
   const sortedPrices = [...displayedPrices].sort((a, b) => {
     if (!showFavoritesOnly) {
       const aFav = favorites.has(a.symbol) ? 1 : 0;
       const bFav = favorites.has(b.symbol) ? 1 : 0;
       if (aFav !== bFav) return bFav - aFav;
     }
-    return 0; // maintain existing order (by volume from query)
+    return 0;
   });
+
+  const periodLabel =
+    TIME_PERIODS.find((p) => p.key === period)?.label ?? "24H";
 
   if (loading) {
     return (
@@ -102,35 +185,88 @@ export default function PriceTable() {
   if (prices.length === 0) {
     return (
       <div className="rounded-xl border border-gray-200 bg-white p-8 text-center text-gray-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-400">
-        No price data yet. Make sure the worker is running and connected to Supabase.
+        No price data yet. Make sure the worker is running and connected to
+        Supabase.
       </div>
     );
   }
 
   return (
     <div>
-      {/* Filter toggle */}
-      <div className="mb-3 flex items-center gap-3">
-        <button
-          onClick={() => setShowFavoritesOnly(false)}
-          className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
-            !showFavoritesOnly
-              ? "bg-blue-600 text-white"
-              : "bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-gray-700"
-          }`}
-        >
-          All Coins
-        </button>
-        <button
-          onClick={() => setShowFavoritesOnly(true)}
-          className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
-            showFavoritesOnly
-              ? "bg-yellow-500 text-white"
-              : "bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-gray-700"
-          }`}
-        >
-          Favorites ({favorites.size})
-        </button>
+      {/* Controls bar */}
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          {/* Favorites filter */}
+          <button
+            onClick={() => setShowFavoritesOnly(false)}
+            className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+              !showFavoritesOnly
+                ? "bg-blue-600 text-white"
+                : "bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-gray-700"
+            }`}
+          >
+            All Coins
+          </button>
+          <button
+            onClick={() => setShowFavoritesOnly(true)}
+            className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+              showFavoritesOnly
+                ? "bg-yellow-500 text-white"
+                : "bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-gray-700"
+            }`}
+          >
+            Favorites ({favorites.size})
+          </button>
+
+          {/* Divider */}
+          <div className="mx-1 h-5 w-px bg-gray-200 dark:bg-gray-700" />
+
+          {/* Time period toggle */}
+          <div className="flex rounded-md bg-gray-100 p-0.5 dark:bg-gray-800">
+            {TIME_PERIODS.map((tp) => (
+              <button
+                key={tp.key}
+                onClick={() => setPeriod(tp.key)}
+                className={`rounded px-2.5 py-1 text-xs font-medium transition-colors ${
+                  period === tp.key
+                    ? "bg-white text-gray-900 shadow-sm dark:bg-gray-700 dark:text-white"
+                    : "text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                }`}
+              >
+                {tp.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Countdown timer */}
+        <div className="flex items-center gap-2 text-xs text-gray-400 dark:text-gray-500">
+          <div className="relative h-4 w-4">
+            <svg className="h-4 w-4 -rotate-90" viewBox="0 0 16 16">
+              <circle
+                cx="8"
+                cy="8"
+                r="6"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                opacity="0.2"
+              />
+              <circle
+                cx="8"
+                cy="8"
+                r="6"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeDasharray={`${(countdown / POLL_INTERVAL) * 37.7} 37.7`}
+                strokeLinecap="round"
+                className="transition-all duration-1000 ease-linear"
+              />
+            </svg>
+          </div>
+          <span className="tabular-nums">{countdown}s</span>
+        </div>
       </div>
 
       {showFavoritesOnly && sortedPrices.length === 0 ? (
@@ -146,15 +282,27 @@ export default function PriceTable() {
                 <th className="px-4 py-3">#</th>
                 <th className="px-4 py-3">Name</th>
                 <th className="px-4 py-3 text-right">Price</th>
-                <th className="px-4 py-3 text-right">24h Change</th>
-                <th className="hidden px-4 py-3 text-right sm:table-cell">24h High</th>
-                <th className="hidden px-4 py-3 text-right sm:table-cell">24h Low</th>
-                <th className="hidden px-4 py-3 text-right md:table-cell">Volume</th>
+                <th className="px-4 py-3 text-right">
+                  {periodLabel} Change
+                  {periodLoading && (
+                    <span className="ml-1 inline-block h-3 w-3 animate-spin rounded-full border-2 border-gray-300 border-t-gray-500" />
+                  )}
+                </th>
+                <th className="hidden px-4 py-3 text-right sm:table-cell">
+                  24h High
+                </th>
+                <th className="hidden px-4 py-3 text-right sm:table-cell">
+                  24h Low
+                </th>
+                <th className="hidden px-4 py-3 text-right md:table-cell">
+                  Volume
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
               {sortedPrices.map((coin, i) => {
-                const isPositive = coin.change_24h >= 0;
+                const change = getChange(coin);
+                const isPositive = change >= 0;
                 const isFlashing = flashSymbols.has(coin.symbol);
                 const isFavorite = favorites.has(coin.symbol);
                 return (
@@ -170,29 +318,46 @@ export default function PriceTable() {
                       <button
                         onClick={() => toggleFavorite(coin.symbol)}
                         className="text-lg leading-none transition-colors hover:scale-110"
-                        title={isFavorite ? "Remove from favorites" : "Add to favorites"}
+                        title={
+                          isFavorite
+                            ? "Remove from favorites"
+                            : "Add to favorites"
+                        }
                       >
                         {isFavorite ? (
                           <span className="text-yellow-500">&#9733;</span>
                         ) : (
-                          <span className="text-gray-300 hover:text-yellow-400 dark:text-gray-600">&#9734;</span>
+                          <span className="text-gray-300 hover:text-yellow-400 dark:text-gray-600">
+                            &#9734;
+                          </span>
                         )}
                       </button>
                     </td>
-                    <td className="px-4 py-3 text-gray-500 dark:text-gray-400">{i + 1}</td>
+                    <td className="px-4 py-3 text-gray-500 dark:text-gray-400">
+                      {i + 1}
+                    </td>
                     <td className="px-4 py-3">
                       <div>
-                        <span className="font-medium text-gray-900 dark:text-white">{coin.name}</span>
-                        <span className="ml-2 text-xs text-gray-400">{coin.symbol.replace("USDT", "")}</span>
+                        <span className="font-medium text-gray-900 dark:text-white">
+                          {coin.name}
+                        </span>
+                        <span className="ml-2 text-xs text-gray-400">
+                          {coin.symbol.replace("USDT", "")}
+                        </span>
                       </div>
                     </td>
                     <td className="px-4 py-3 text-right font-mono font-medium text-gray-900 dark:text-white">
                       ${formatPrice(coin.price)}
                     </td>
-                    <td className={`px-4 py-3 text-right font-mono font-medium ${
-                      isPositive ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"
-                    }`}>
-                      {isPositive ? "+" : ""}{coin.change_24h.toFixed(2)}%
+                    <td
+                      className={`px-4 py-3 text-right font-mono font-medium ${
+                        isPositive
+                          ? "text-green-600 dark:text-green-400"
+                          : "text-red-600 dark:text-red-400"
+                      }`}
+                    >
+                      {isPositive ? "+" : ""}
+                      {change.toFixed(2)}%
                     </td>
                     <td className="hidden px-4 py-3 text-right font-mono text-gray-600 dark:text-gray-300 sm:table-cell">
                       {coin.high_24h ? `$${formatPrice(coin.high_24h)}` : "-"}

@@ -150,6 +150,8 @@ async function flushPriceUpdates(): Promise<void> {
 
   if (error) {
     console.error("Failed to upsert prices:", error.message);
+  } else {
+    console.log(`WS flush: updated ${rows.length} prices (${rows.map(r => r.symbol).join(", ")})`);
   }
 
   for (const row of rows) {
@@ -200,10 +202,12 @@ function connectWebSocket(): void {
     wsFailCount = 0;
   });
 
-  ws.on("message", (data: WebSocket.Data) => {
+  ws.on("message", (raw: WebSocket.Data) => {
     try {
-      const ticker: BinanceMiniTicker = JSON.parse(data.toString());
-      if (ticker.e === "24hrMiniTicker") {
+      const msg = JSON.parse(raw.toString());
+      // Combined streams wrap data in {"stream":"...","data":{...}}
+      const ticker: BinanceMiniTicker = msg.data ?? msg;
+      if (ticker.e === "24hrMiniTicker" && ticker.s) {
         pendingUpdates.set(ticker.s, ticker);
       }
     } catch {

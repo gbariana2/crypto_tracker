@@ -1,14 +1,22 @@
+import "dotenv/config";
 import WebSocket from "ws";
 import { supabase } from "./supabase.js";
 import { recordPrice, checkVolatility } from "./volatility.js";
 import {
   TRACKED_SYMBOLS,
   BINANCE_WS_URL,
+  BINANCE_WS_URL_US,
+  BINANCE_API_URL,
+  BINANCE_API_URL_US,
   HISTORY_INTERVAL_MS,
 } from "./config.js";
 
 // Map symbol -> name for easy lookup
 const symbolNames = new Map(TRACKED_SYMBOLS.map((s) => [s.symbol.toLowerCase(), s.name]));
+
+// Track which Binance endpoint works
+let activeApiUrl = BINANCE_API_URL;
+let activeWsUrl = BINANCE_WS_URL;
 
 // Seed the prices table with all tracked symbols
 async function seedPrices(): Promise<void> {
@@ -23,14 +31,75 @@ async function seedPrices(): Promise<void> {
   console.log(`Seeded ${TRACKED_SYMBOLS.length} symbols in prices table`);
 }
 
-// Binance combined stream: !miniTicker@arr gives all tickers
-// We'll use individual streams for our tracked symbols for efficiency
-function buildStreamUrl(): string {
-  const streams = TRACKED_SYMBOLS.map(
-    (s) => `${s.symbol.toLowerCase()}@miniTicker`
-  ).join("/");
-  return `${BINANCE_WS_URL}/${streams}`;
+// ─── REST API polling ───
+
+interface BinanceTicker24h {
+  symbol: string;
+  lastPrice: string;
+  openPrice: string;
+  highPrice: string;
+  lowPrice: string;
+  volume: string;
+  priceChangePercent: string;
 }
+
+async function pollRestApi(): Promise<void> {
+  try {
+    const symbols = TRACKED_SYMBOLS.map((s) => s.symbol);
+    const url = `${activeApiUrl}/ticker/24hr?symbols=${encodeURIComponent(JSON.stringify(symbols))}`;
+    const res = await fetch(url);
+
+    // If global Binance blocked, try Binance.us
+    if (!res.ok && activeApiUrl === BINANCE_API_URL) {
+      console.log("Global Binance API blocked, trying Binance.us...");
+      activeApiUrl = BINANCE_API_URL_US;
+      return pollRestApi();
+    }
+
+    if (!res.ok) {
+      console.error(`REST API error: ${res.status} ${res.statusText}`);
+      return;
+    }
+
+    const tickers: BinanceTicker24h[] = await res.json();
+
+    const rows = tickers.map((t) => {
+      const price = parseFloat(t.lastPrice);
+      const open = parseFloat(t.openPrice);
+      const change24h = open > 0 ? ((price - open) / open) * 100 : 0;
+
+      return {
+        symbol: t.symbol,
+        name: symbolNames.get(t.symbol.toLowerCase()) ?? t.symbol,
+        price,
+        change_24h: parseFloat(change24h.toFixed(4)),
+        high_24h: parseFloat(t.highPrice),
+        low_24h: parseFloat(t.lowPrice),
+        volume_24h: parseFloat(t.volume),
+        updated_at: new Date().toISOString(),
+      };
+    });
+
+    const { error } = await supabase
+      .from("prices")
+      .upsert(rows, { onConflict: "symbol" });
+
+    if (error) {
+      console.error("Failed to upsert prices (REST):", error.message);
+    } else {
+      console.log(`REST poll: updated ${rows.length} prices`);
+    }
+
+    for (const row of rows) {
+      recordPrice(row.symbol, row.price);
+      await checkVolatility(row.symbol, row.price);
+    }
+  } catch (err) {
+    console.error("REST poll failed:", (err as Error).message);
+  }
+}
+
+// ─── WebSocket streaming ───
 
 interface BinanceMiniTicker {
   e: string;   // event type
@@ -40,6 +109,13 @@ interface BinanceMiniTicker {
   h: string;   // high (24h)
   l: string;   // low (24h)
   v: string;   // total traded base asset volume
+}
+
+function buildStreamUrl(): string {
+  const streams = TRACKED_SYMBOLS.map(
+    (s) => `${s.symbol.toLowerCase()}@miniTicker`
+  ).join("/");
+  return `${activeWsUrl}/${streams}`;
 }
 
 // Batch price updates — collect and flush every second
@@ -76,7 +152,6 @@ async function flushPriceUpdates(): Promise<void> {
     console.error("Failed to upsert prices:", error.message);
   }
 
-  // Record prices for volatility tracking and check alerts
   for (const row of rows) {
     recordPrice(row.symbol, row.price);
     await checkVolatility(row.symbol, row.price);
@@ -111,13 +186,18 @@ async function saveHistorySnapshot(): Promise<void> {
   }
 }
 
+let wsConnected = false;
+let wsFailCount = 0;
+
 function connectWebSocket(): void {
   const url = buildStreamUrl();
-  console.log("Connecting to Binance WebSocket...");
+  console.log(`Connecting to Binance WebSocket (${activeWsUrl === BINANCE_WS_URL ? "global" : "US"})...`);
   const ws = new WebSocket(url);
 
   ws.on("open", () => {
     console.log("Connected to Binance WebSocket");
+    wsConnected = true;
+    wsFailCount = 0;
   });
 
   ws.on("message", (data: WebSocket.Data) => {
@@ -132,14 +212,44 @@ function connectWebSocket(): void {
   });
 
   ws.on("close", () => {
+    wsConnected = false;
     console.log("WebSocket closed, reconnecting in 5s...");
     setTimeout(connectWebSocket, 5000);
   });
 
   ws.on("error", (err: Error) => {
     console.error("WebSocket error:", err.message);
+    wsFailCount++;
+
+    // After 3 failures on global, try Binance.us WebSocket
+    if (wsFailCount === 3 && activeWsUrl === BINANCE_WS_URL) {
+      console.log("Global WebSocket blocked, trying Binance.us WebSocket...");
+      activeWsUrl = BINANCE_WS_URL_US;
+      ws.removeAllListeners();
+      connectWebSocket();
+      return;
+    }
+
+    // After 3 more failures (6 total), give up on WS and use REST
+    if (wsFailCount >= 6 && !wsConnected) {
+      console.log("WebSocket unavailable. Switching to REST API polling.");
+      ws.removeAllListeners();
+      startRestPolling();
+      return;
+    }
+
     ws.close();
   });
+}
+
+let restPollingStarted = false;
+
+function startRestPolling(): void {
+  if (restPollingStarted) return;
+  restPollingStarted = true;
+  console.log("Starting REST API polling every 3 seconds...");
+  pollRestApi(); // immediate first poll
+  setInterval(pollRestApi, 3000);
 }
 
 async function main(): Promise<void> {
@@ -149,7 +259,7 @@ async function main(): Promise<void> {
   await seedPrices();
   connectWebSocket();
 
-  // Flush price updates to Supabase every 1 second
+  // Flush WebSocket price updates to Supabase every 1 second
   setInterval(flushPriceUpdates, 1000);
 
   // Save history snapshots at configured interval

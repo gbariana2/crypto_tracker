@@ -21,5 +21,8 @@ export const VOLATILITY_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
 // How often to save price_history snapshots (in milliseconds)
 export const HISTORY_INTERVAL_MS = 30 * 1000; // every 30 seconds
 
-// Binance WebSocket base URL
+// Binance endpoints — try global first, fall back to Binance.us for US IPs
 export const BINANCE_WS_URL = "wss://stream.binance.com:9443/ws";
+export const BINANCE_WS_URL_US = "wss://stream.binance.us:9443/ws";
+export const BINANCE_API_URL = "https://api.binance.com/api/v3";
+export const BINANCE_API_URL_US = "https://api.binance.us/api/v3";

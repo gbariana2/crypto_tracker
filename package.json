@@ -1,0 +1,8 @@
+{
+  "name": "crypto-tracker",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "worker"
+  ]
+}

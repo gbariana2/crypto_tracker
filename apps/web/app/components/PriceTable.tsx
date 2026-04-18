@@ -45,6 +45,9 @@ export default function PriceTable() {
   const [prices, setPrices] = useState<Price[]>([]);
   const [loading, setLoading] = useState(true);
   const [flashSymbols, setFlashSymbols] = useState<Set<string>>(new Set());
+  // Track price direction: "up" | "down" | undefined per symbol
+  const [priceDirection, setPriceDirection] = useState<Record<string, "up" | "down">>({});
+  const prevPricesRef = useRef<Record<string, number>>({});
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
   const [period, setPeriod] = useState<PeriodKey>("24h");
   const [periodChanges, setPeriodChanges] = useState<Record<string, number>>(
@@ -54,6 +57,36 @@ export default function PriceTable() {
   const [countdown, setCountdown] = useState(POLL_INTERVAL);
   const countdownRef = useRef(POLL_INTERVAL);
 
+  // Detect price direction changes
+  const updateDirections = useCallback((newPrices: Price[]) => {
+    const directions: Record<string, "up" | "down"> = {};
+    for (const p of newPrices) {
+      const prev = prevPricesRef.current[p.symbol];
+      if (prev !== undefined && p.price !== prev) {
+        directions[p.symbol] = p.price > prev ? "up" : "down";
+      }
+    }
+    if (Object.keys(directions).length > 0) {
+      setPriceDirection((prev) => ({ ...prev, ...directions }));
+      // Clear directions after animation
+      setTimeout(() => {
+        setPriceDirection((prev) => {
+          const next = { ...prev };
+          for (const sym of Object.keys(directions)) {
+            delete next[sym];
+          }
+          return next;
+        });
+      }, 800);
+    }
+    // Save current prices for next comparison
+    const priceMap: Record<string, number> = {};
+    for (const p of newPrices) {
+      priceMap[p.symbol] = p.price;
+    }
+    prevPricesRef.current = priceMap;
+  }, []);
+
   // Fetch prices from Supabase
   const fetchPrices = useCallback(async () => {
     const { data, error } = await getSupabase()
@@ -62,13 +95,15 @@ export default function PriceTable() {
       .order("volume_24h", { ascending: false, nullsFirst: false });
 
     if (!error && data) {
-      setPrices(data as Price[]);
+      const newPrices = data as Price[];
+      updateDirections(newPrices);
+      setPrices(newPrices);
     }
     setLoading(false);
     // Reset countdown
     countdownRef.current = POLL_INTERVAL;
     setCountdown(POLL_INTERVAL);
-  }, []);
+  }, [updateDirections]);
 
   // Initial fetch + polling
   useEffect(() => {
@@ -347,7 +382,17 @@ export default function PriceTable() {
                       </div>
                     </td>
                     <td className="px-4 py-3 text-right font-mono font-medium text-gray-900 dark:text-white">
-                      ${formatPrice(coin.price)}
+                      <span
+                        className={`inline-block transition-colors duration-700 ${
+                          priceDirection[coin.symbol] === "up"
+                            ? "text-green-500"
+                            : priceDirection[coin.symbol] === "down"
+                              ? "text-red-500"
+                              : ""
+                        }`}
+                      >
+                        ${formatPrice(coin.price)}
+                      </span>
                     </td>
                     <td
                       className={`px-4 py-3 text-right font-mono font-medium ${

@@ -5,7 +5,6 @@ import {
   createChart,
   type IChartApi,
   type ISeriesApi,
-  type CandlestickSeriesOptions,
   ColorType,
   CandlestickSeries,
 } from "lightweight-charts";
@@ -37,6 +36,18 @@ interface CandleData {
   volume: number;
 }
 
+function formatPrice(price: number): string {
+  if (price >= 1)
+    return price.toLocaleString("en-US", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+  return price.toLocaleString("en-US", {
+    minimumFractionDigits: 4,
+    maximumFractionDigits: 6,
+  });
+}
+
 export default function CoinChart({
   symbol,
   name,
@@ -50,6 +61,16 @@ export default function CoinChart({
   const [period, setPeriod] = useState<PeriodKey>("24h");
   const [loading, setLoading] = useState(true);
   const [chartChange, setChartChange] = useState<number>(change24h);
+
+  // Crosshair hover state
+  const [hoverPrice, setHoverPrice] = useState<number | null>(null);
+  const [hoverTime, setHoverTime] = useState<string | null>(null);
+
+  // Compute hover % change from hovered price to current price
+  const hoverChangePct =
+    hoverPrice !== null && hoverPrice > 0
+      ? ((currentPrice - hoverPrice) / hoverPrice) * 100
+      : null;
 
   useEffect(() => {
     if (!chartContainerRef.current) return;
@@ -70,7 +91,7 @@ export default function CoinChart({
       },
       rightPriceScale: {
         borderColor: "#1b1e23",
-        scaleMargins: { top: 0.1, bottom: 0.1 },
+        scaleMargins: { top: 0.15, bottom: 0.1 },
       },
       timeScale: {
         borderColor: "#1b1e23",
@@ -92,6 +113,37 @@ export default function CoinChart({
 
     chartRef.current = chart;
     seriesRef.current = series;
+
+    // Subscribe to crosshair move
+    chart.subscribeCrosshairMove((param) => {
+      if (!param.time || !param.seriesData || param.seriesData.size === 0) {
+        setHoverPrice(null);
+        setHoverTime(null);
+        return;
+      }
+
+      const data = param.seriesData.get(series);
+      if (data && "close" in data) {
+        setHoverPrice((data as { close: number }).close);
+
+        // Format the time
+        const t = param.time;
+        if (typeof t === "number") {
+          const date = new Date(t * 1000);
+          setHoverTime(
+            date.toLocaleDateString("en-US", {
+              month: "short",
+              day: "numeric",
+              year: "numeric",
+              hour: "2-digit",
+              minute: "2-digit",
+            })
+          );
+        } else {
+          setHoverTime(String(t));
+        }
+      }
+    });
 
     const handleResize = () => {
       if (chartContainerRef.current) {
@@ -135,7 +187,6 @@ export default function CoinChart({
           );
           chartRef.current?.timeScale().fitContent();
 
-          // Compute change for this period
           const firstOpen = data[0].open;
           const lastClose = data[data.length - 1].close;
           if (firstOpen > 0) {
@@ -160,9 +211,21 @@ export default function CoinChart({
   const isPositive = chartChange >= 0;
   const ticker = symbol.replace("USDT", "");
 
+  // Display values: use hover data if available, otherwise current
+  const displayPrice = hoverPrice ?? currentPrice;
+  const displayChange = hoverChangePct ?? chartChange;
+  const displayIsPositive = displayChange >= 0;
+  const isHovering = hoverPrice !== null;
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
-      <div className="w-full max-w-3xl rounded-xl border border-[#1e2329] bg-[#0b0e11] shadow-2xl">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-3xl rounded-xl border border-[#1e2329] bg-[#0b0e11] shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
         {/* Header */}
         <div className="flex items-center justify-between border-b border-[#1e2329] px-6 py-4">
           <div>
@@ -174,25 +237,23 @@ export default function CoinChart({
             </h2>
             <div className="mt-1 flex items-baseline gap-3">
               <span className="text-2xl font-bold text-white">
-                $
-                {currentPrice >= 1
-                  ? currentPrice.toLocaleString("en-US", {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2,
-                    })
-                  : currentPrice.toLocaleString("en-US", {
-                      minimumFractionDigits: 4,
-                      maximumFractionDigits: 6,
-                    })}
+                ${formatPrice(displayPrice)}
               </span>
               <span
                 className={`text-sm font-semibold ${
-                  isPositive ? "text-[#0ecb81]" : "text-[#f6465d]"
+                  displayIsPositive ? "text-[#0ecb81]" : "text-[#f6465d]"
                 }`}
               >
-                {isPositive ? "+" : ""}
-                {chartChange.toFixed(2)}%
+                {displayIsPositive ? "+" : ""}
+                {displayChange.toFixed(2)}%
+                {isHovering && (
+                  <span className="ml-1 text-[#848e9c]">vs now</span>
+                )}
               </span>
+            </div>
+            {/* Hover time label */}
+            <div className="mt-0.5 h-4 text-xs text-[#848e9c]">
+              {isHovering ? hoverTime : "Current price"}
             </div>
           </div>
           <button

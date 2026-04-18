@@ -18,12 +18,15 @@ const symbolNames = new Map(TRACKED_SYMBOLS.map((s) => [s.symbol.toLowerCase(), 
 let activeApiUrl = BINANCE_API_URL;
 let activeWsUrl = BINANCE_WS_URL;
 
-// Seed the prices table with all tracked symbols
+// Seed the prices table — only insert symbols that don't exist yet
 async function seedPrices(): Promise<void> {
   for (const { symbol, name } of TRACKED_SYMBOLS) {
     const { error } = await supabase
       .from("prices")
-      .upsert({ symbol, name, price: 0, change_24h: 0 }, { onConflict: "symbol" });
+      .upsert(
+        { symbol, name, price: 0, change_24h: 0 },
+        { onConflict: "symbol", ignoreDuplicates: true }
+      );
     if (error) {
       console.error(`Failed to seed ${symbol}:`, error.message);
     }

@@ -27,7 +27,7 @@ export default function PriceTable() {
   const [flashSymbols, setFlashSymbols] = useState<Set<string>>(new Set());
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
 
-  // Initial fetch
+  // Fetch prices (used for initial load + polling fallback)
   useEffect(() => {
     async function fetchPrices() {
       const { data, error } = await getSupabase()
@@ -41,6 +41,10 @@ export default function PriceTable() {
       setLoading(false);
     }
     fetchPrices();
+
+    // Poll every 5s as fallback in case Realtime has issues
+    const interval = setInterval(fetchPrices, 5000);
+    return () => clearInterval(interval);
   }, []);
 
   // Realtime subscription

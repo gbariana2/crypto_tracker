@@ -9,7 +9,7 @@ export const TRACKED_SYMBOLS = [
   { symbol: "DOGEUSDT", name: "Dogecoin" },
   { symbol: "AVAXUSDT", name: "Avalanche" },
   { symbol: "DOTUSDT", name: "Polkadot" },
-  { symbol: "MATICUSDT", name: "Polygon" },
+  { symbol: "POLUSDT", name: "Polygon" },
 ];
 
 // Volatility threshold: flag if price changes more than this % in 5 minutes

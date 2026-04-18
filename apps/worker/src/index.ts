@@ -269,6 +269,10 @@ async function main(): Promise<void> {
   // Flush WebSocket price updates to Supabase every 1 second
   setInterval(flushPriceUpdates, 1000);
 
+  // Supplement WebSocket with periodic REST polls to catch all symbols
+  // (some lower-volume pairs emit miniTicker events infrequently)
+  setInterval(pollRestApi, 10000);
+
   // Save history snapshots at configured interval
   setInterval(saveHistorySnapshot, HISTORY_INTERVAL_MS);
 

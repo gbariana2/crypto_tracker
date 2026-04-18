@@ -1,0 +1,25 @@
+// Tracked symbols (Binance uses uppercase pairs like BTCUSDT)
+export const TRACKED_SYMBOLS = [
+  { symbol: "BTCUSDT", name: "Bitcoin" },
+  { symbol: "ETHUSDT", name: "Ethereum" },
+  { symbol: "BNBUSDT", name: "BNB" },
+  { symbol: "SOLUSDT", name: "Solana" },
+  { symbol: "XRPUSDT", name: "XRP" },
+  { symbol: "ADAUSDT", name: "Cardano" },
+  { symbol: "DOGEUSDT", name: "Dogecoin" },
+  { symbol: "AVAXUSDT", name: "Avalanche" },
+  { symbol: "DOTUSDT", name: "Polkadot" },
+  { symbol: "MATICUSDT", name: "Polygon" },
+];
+
+// Volatility threshold: flag if price changes more than this % in 5 minutes
+export const VOLATILITY_THRESHOLD_PCT = 2.0;
+
+// Rolling window for volatility check (in milliseconds)
+export const VOLATILITY_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
+
+// How often to save price_history snapshots (in milliseconds)
+export const HISTORY_INTERVAL_MS = 30 * 1000; // every 30 seconds
+
+// Binance WebSocket base URL
+export const BINANCE_WS_URL = "wss://stream.binance.com:9443/ws";

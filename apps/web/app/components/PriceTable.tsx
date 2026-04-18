@@ -46,6 +46,7 @@ export default function PriceTable() {
   const [prices, setPrices] = useState<Price[]>([]);
   const [loading, setLoading] = useState(true);
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
   const [period, setPeriod] = useState<PeriodKey>("24h");
   const [periodChanges, setPeriodChanges] = useState<Record<string, number>>({});
   const [periodLoading, setPeriodLoading] = useState(false);
@@ -175,9 +176,17 @@ export default function PriceTable() {
     return periodChanges[coin.symbol] ?? 0;
   }
 
-  const displayedPrices = showFavoritesOnly
+  const filteredByTab = showFavoritesOnly
     ? prices.filter((p) => favorites.has(p.symbol))
     : prices;
+
+  const displayedPrices = searchQuery
+    ? filteredByTab.filter(
+        (p) =>
+          p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          p.symbol.toLowerCase().includes(searchQuery.toLowerCase())
+      )
+    : filteredByTab;
 
   const sortedPrices = [...displayedPrices].sort((a, b) => {
     if (!showFavoritesOnly) {
@@ -192,8 +201,35 @@ export default function PriceTable() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-12">
-        <div className="h-6 w-6 animate-spin rounded-full border-2 border-accent border-t-transparent" />
+      <div className="overflow-hidden rounded-lg border border-border">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-border bg-surface text-left text-xs font-semibold uppercase tracking-wider text-muted">
+              <th className="w-10 px-3 py-3"></th>
+              <th className="px-4 py-3">#</th>
+              <th className="px-4 py-3">Name</th>
+              <th className="px-4 py-3 text-right">Price</th>
+              <th className="px-4 py-3 text-right">Change</th>
+              <th className="hidden px-4 py-3 text-right sm:table-cell">High</th>
+              <th className="hidden px-4 py-3 text-right sm:table-cell">Low</th>
+              <th className="hidden px-4 py-3 text-right md:table-cell">Vol</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border">
+            {Array.from({ length: 10 }).map((_, i) => (
+              <tr key={i} className="bg-background">
+                <td className="px-3 py-3"><div className="h-4 w-4 animate-pulse rounded bg-surface-hover" /></td>
+                <td className="px-4 py-3"><div className="h-4 w-4 animate-pulse rounded bg-surface-hover" /></td>
+                <td className="px-4 py-3"><div className="h-4 w-24 animate-pulse rounded bg-surface-hover" /></td>
+                <td className="px-4 py-3 text-right"><div className="ml-auto h-4 w-20 animate-pulse rounded bg-surface-hover" /></td>
+                <td className="px-4 py-3 text-right"><div className="ml-auto h-4 w-14 animate-pulse rounded bg-surface-hover" /></td>
+                <td className="hidden px-4 py-3 text-right sm:table-cell"><div className="ml-auto h-4 w-16 animate-pulse rounded bg-surface-hover" /></td>
+                <td className="hidden px-4 py-3 text-right sm:table-cell"><div className="ml-auto h-4 w-16 animate-pulse rounded bg-surface-hover" /></td>
+                <td className="hidden px-4 py-3 text-right md:table-cell"><div className="ml-auto h-4 w-14 animate-pulse rounded bg-surface-hover" /></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     );
   }
@@ -220,6 +256,17 @@ export default function PriceTable() {
       )}
 
       <div>
+        {/* Search */}
+        <div className="mb-3">
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search coins..."
+            className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground placeholder-muted/50 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent sm:max-w-xs"
+          />
+        </div>
+
         {/* Controls */}
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2">

@@ -99,7 +99,7 @@ export default function CoinChart({
         secondsVisible: false,
       },
       width: chartContainerRef.current.clientWidth,
-      height: 400,
+      height: window.innerWidth < 640 ? 300 : 400,
     });
 
     const series = chart.addSeries(CandlestickSeries, {
@@ -223,7 +223,7 @@ export default function CoinChart({
       onClick={onClose}
     >
       <div
-        className="w-full max-w-3xl rounded-xl border border-[#1e2329] bg-[#0b0e11] shadow-2xl"
+        className="w-full max-w-3xl rounded-none border-0 bg-[#0b0e11] shadow-2xl sm:rounded-xl sm:border sm:border-[#1e2329]"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}

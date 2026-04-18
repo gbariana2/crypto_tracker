@@ -281,7 +281,7 @@ export default function CoinChart({
               onClick={() => setPeriod(tp.key)}
               className={`rounded px-3 py-1.5 text-xs font-semibold transition-colors ${
                 period === tp.key
-                  ? "bg-[#fcd535] text-[#0b0e11]"
+                  ? "bg-[#58b9ff] text-[#0b0e11]"
                   : "text-[#848e9c] hover:text-white"
               }`}
             >
@@ -294,7 +294,7 @@ export default function CoinChart({
         <div className="relative px-2 py-2">
           {loading && (
             <div className="absolute inset-0 z-10 flex items-center justify-center bg-[#0b0e11]/80">
-              <div className="h-6 w-6 animate-spin rounded-full border-2 border-[#fcd535] border-t-transparent" />
+              <div className="h-6 w-6 animate-spin rounded-full border-2 border-[#58b9ff] border-t-transparent" />
             </div>
           )}
           <div ref={chartContainerRef} />

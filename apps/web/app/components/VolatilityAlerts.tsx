@@ -53,7 +53,7 @@ export default function VolatilityAlerts() {
   if (alerts.length === 0) {
     return (
       <div className="rounded-lg border border-border bg-surface p-6 text-center text-sm text-muted">
-        No volatility alerts yet. Alerts trigger when a coin moves 2%+ in 5 minutes.
+        No volatility alerts yet. Alerts trigger when a coin moves 5%+ in 1 hour.
       </div>
     );
   }

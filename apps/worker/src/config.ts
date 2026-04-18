@@ -12,11 +12,11 @@ export const TRACKED_SYMBOLS = [
   { symbol: "POLUSDT", name: "Polygon" },
 ];
 
-// Volatility threshold: flag if price changes more than this % in 5 minutes
-export const VOLATILITY_THRESHOLD_PCT = 2.0;
+// Volatility threshold: flag if price changes more than this % in 1 hour
+export const VOLATILITY_THRESHOLD_PCT = 5.0;
 
 // Rolling window for volatility check (in milliseconds)
-export const VOLATILITY_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
+export const VOLATILITY_WINDOW_MS = 60 * 60 * 1000; // 1 hour
 
 // How often to save price_history snapshots (in milliseconds)
 export const HISTORY_INTERVAL_MS = 30 * 1000; // every 30 seconds

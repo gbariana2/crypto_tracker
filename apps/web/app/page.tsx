@@ -23,7 +23,7 @@ export default function Home() {
         <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-muted">
           Volatility Alerts
           <span className="ml-2 font-normal">
-            2%+ swing in 5 min
+            5%+ swing in 1 hour
           </span>
         </h2>
         <VolatilityAlerts />

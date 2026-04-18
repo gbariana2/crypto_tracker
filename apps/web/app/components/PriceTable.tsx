@@ -55,8 +55,9 @@ export default function PriceTable() {
   const [priceDirection, setPriceDirection] = useState<Record<string, "up" | "down">>({});
   const prevPricesRef = useRef<Record<string, number>>({});
   const [selectedCoin, setSelectedCoin] = useState<Price | null>(null);
+  const [noChange, setNoChange] = useState(false);
 
-  const updateDirections = useCallback((newPrices: Price[]) => {
+  const updateDirections = useCallback((newPrices: Price[]): boolean => {
     const directions: Record<string, "up" | "down"> = {};
     for (const p of newPrices) {
       const prev = prevPricesRef.current[p.symbol];
@@ -64,7 +65,8 @@ export default function PriceTable() {
         directions[p.symbol] = p.price > prev ? "up" : "down";
       }
     }
-    if (Object.keys(directions).length > 0) {
+    const hadChanges = Object.keys(directions).length > 0;
+    if (hadChanges) {
       setPriceDirection((prev) => ({ ...prev, ...directions }));
       setTimeout(() => {
         setPriceDirection((prev) => {
@@ -77,6 +79,7 @@ export default function PriceTable() {
     const priceMap: Record<string, number> = {};
     for (const p of newPrices) priceMap[p.symbol] = p.price;
     prevPricesRef.current = priceMap;
+    return hadChanges;
   }, []);
 
   const fetchPrices = useCallback(async () => {
@@ -87,8 +90,14 @@ export default function PriceTable() {
 
     if (!error && data) {
       const newPrices = data as Price[];
-      updateDirections(newPrices);
+      const hadChanges = updateDirections(newPrices);
       setPrices(newPrices);
+
+      // Show "no change" briefly if nothing moved
+      if (!hadChanges && Object.keys(prevPricesRef.current).length > 0) {
+        setNoChange(true);
+        setTimeout(() => setNoChange(false), 1500);
+      }
     }
     setLoading(false);
     countdownRef.current = POLL_INTERVAL;
@@ -310,24 +319,30 @@ export default function PriceTable() {
             </div>
           </div>
 
-          {/* Countdown */}
+          {/* Countdown / No change indicator */}
           <div className="flex items-center gap-2 text-xs text-muted">
-            <div className="relative h-4 w-4">
-              <svg className="h-4 w-4 -rotate-90" viewBox="0 0 16 16">
-                <circle
-                  cx="8" cy="8" r="6"
-                  fill="none" stroke="currentColor" strokeWidth="2" opacity="0.15"
-                />
-                <circle
-                  cx="8" cy="8" r="6"
-                  fill="none" stroke="var(--accent)" strokeWidth="2"
-                  strokeDasharray={`${(countdown / POLL_INTERVAL) * 37.7} 37.7`}
-                  strokeLinecap="round"
-                  className="transition-all duration-1000 ease-linear"
-                />
-              </svg>
-            </div>
-            <span className="tabular-nums">{countdown}s</span>
+            {noChange ? (
+              <span className="animate-pulse text-muted">No change</span>
+            ) : (
+              <>
+                <div className="relative h-4 w-4">
+                  <svg className="h-4 w-4 -rotate-90" viewBox="0 0 16 16">
+                    <circle
+                      cx="8" cy="8" r="6"
+                      fill="none" stroke="currentColor" strokeWidth="2" opacity="0.15"
+                    />
+                    <circle
+                      cx="8" cy="8" r="6"
+                      fill="none" stroke="var(--accent)" strokeWidth="2"
+                      strokeDasharray={`${(countdown / POLL_INTERVAL) * 37.7} 37.7`}
+                      strokeLinecap="round"
+                      className="transition-all duration-1000 ease-linear"
+                    />
+                  </svg>
+                </div>
+                <span className="tabular-nums">{countdown}s</span>
+              </>
+            )}
           </div>
         </div>
 

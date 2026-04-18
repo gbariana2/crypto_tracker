@@ -2,6 +2,6 @@
   "name": "crypto-tracker",
   "private": true,
   "workspaces": [
-    "apps/*"
+    "apps/web"
   ]
 }
